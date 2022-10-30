@@ -19,7 +19,6 @@ public class Poster implements Runnable {
 
 //    public static final String BASE_PATH = "http://localhost:8080";
   public static String BASE_PATH = "http://alb-ass2-620885190.us-west-2.elb.amazonaws.com/ass1Server_war";
-//  public static String BASE_PATH = "http://52.36.88.181:8080/ass1Server_war";
   public static final int TOTAL_RETRY = 5;
   public static final int SUCCESS_CODE = 201;
 
