@@ -142,3 +142,6 @@ replay_pid*
 
 .DS_Store
 # End of https://www.toptal.com/developers/gitignore/api/intellij,java
+
+#project properties files
+*.properties
