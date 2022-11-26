@@ -36,49 +36,9 @@ public class Receiver {
 
     final Connection connection = factory.newConnection();
 
-    //ass3: batch insert after getting a number of messages
-//    Runnable runnableToBatchStore = () -> {
-//
-//      for (int i = 0; i < PER_THREAD_CHANNEL_SIZE; i++) {
-//        try {
-//          final Channel channel = connection.createChannel();
-//          channel.exchangeDeclare(EXCHANGE_NAME, "fanout");
-//          channel.queueDeclare(QUEUE_NAME, false, false, false, null);
-//          channel.queueBind(QUEUE_NAME, EXCHANGE_NAME, "");        // max one message per receiver
-//          channel.basicQos(1);
-//
-//          DeliverCallback deliverCallback = (consumerTag, delivery) -> {
-//            String message = new String(delivery.getBody(), StandardCharsets.UTF_8);
-//            q.offer(message);
-//            channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
-////            }
-//          };
-//          // process messages
-//          channel.basicConsume(QUEUE_NAME, false, deliverCallback, consumerTag -> {
-//          });
-//        } catch (IOException ex) {
-//          Logger.getLogger(Receiver.class.getName()).log(Level.SEVERE, null, ex);
-//        }
-//      }
-////      LiftRideDao.executeBatch(q);
-//    };
-//
-//
-//    Runnable runnableToBatchInsert = () -> {
-//        while (true){
-//                if(!LiftRideDao.executeBatch(q)){
-//                  try {
-//                    Thread.sleep(1000);
-//                  } catch (InterruptedException e) {
-//                    e.printStackTrace();
-//                  }
-//                }
-//        }
-//    };
+    //ass3: batch insert after getting some messages
+    Runnable runnableToBatchStore = () -> {
 
-    //ass3: per channel insert one message
-    Runnable runnable = () -> {
-//      Channel channel = null;
       for (int i = 0; i < PER_THREAD_CHANNEL_SIZE; i++) {
         try {
           final Channel channel = connection.createChannel();
@@ -89,10 +49,7 @@ public class Receiver {
 
           DeliverCallback deliverCallback = (consumerTag, delivery) -> {
             String message = new String(delivery.getBody(), StandardCharsets.UTF_8);
-//            try {
-//            storeToMap(message);
-            insertToDB(message);
-//            } finally {
+            q.offer(message);
             channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
 //            }
           };
@@ -105,24 +62,84 @@ public class Receiver {
       }
     };
 
-    // start threads and block to receive messages
-    ExecutorService consumerPool = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
-    for (int i = 0; i < THREAD_POOL_SIZE; i++) {
-      consumerPool.execute(runnable);
-    }
-
-//    new Thread( ()->{
-//      while (true){
-//        if(q.size() == 200000){
-//          System.out.println("yes");
-////          LiftRideDao.executeOne(q);
-//          LiftRideDao.executeMany(q);
+    //ass3: per channel insert one message
+//    Runnable runnable = () -> {
+////      Channel channel = null;
+//      for (int i = 0; i < PER_THREAD_CHANNEL_SIZE; i++) {
+//        try {
+//          final Channel channel = connection.createChannel();
+//          channel.exchangeDeclare(EXCHANGE_NAME, "fanout");
+//          channel.queueDeclare(QUEUE_NAME, false, false, false, null);
+//          channel.queueBind(QUEUE_NAME, EXCHANGE_NAME, "");        // max one message per receiver
+//          channel.basicQos(1);
+//
+//          DeliverCallback deliverCallback = (consumerTag, delivery) -> {
+//            String message = new String(delivery.getBody(), StandardCharsets.UTF_8);
+////            try {
+////            storeToMap(message);
+//            insertToDB(message);
+////            } finally {
+//            channel.basicAck(delivery.getEnvelope().getDeliveryTag(), false);
+////            }
+//          };
+//          // process messages
+//          channel.basicConsume(QUEUE_NAME, false, deliverCallback, consumerTag -> {
+//          });
+//        } catch (IOException ex) {
+//          Logger.getLogger(Receiver.class.getName()).log(Level.SEVERE, null, ex);
 //        }
 //      }
-//    }).start();
+//    };
 
+    // start threads and block to receive messages
+    long start = System.currentTimeMillis();
+    ExecutorService consumerPool = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
+    for (int i = 0; i < THREAD_POOL_SIZE; i++) {
+      consumerPool.execute(runnableToBatchStore);
+    }
+
+    //dynamic abstract the messages and insert to db on the fly (half lazy)
+    ExecutorService consumerPool2 = Executors.newFixedThreadPool(50);
+    Thread.sleep(1000);
+    int round = 0;
+    int maxQueueSize = 0;
+
+    while (true) {
+      System.out.println("q size: " + q.size());
+      for (int i = 0; i < 100; i++) {
+        maxQueueSize = Math.max(maxQueueSize, q.size());
+        System.out.println("inner max q size: " + maxQueueSize);
+        System.out.println("thread: " + i);
+        Thread.sleep(1000);
+        if (i % 20 == 0) {
+          Thread.sleep(1000);
+        }
+        consumerPool2.execute(LiftRideDao.getBatchInsertRunnable(q));
+      }
+
+      //let q has change to get new messages and start a new round
+      try {
+        Thread.sleep(2000);
+        ++round;
+        System.out.println("=====================");
+        System.out.println("round - " + round);
+        System.out.println("=====================");
+
+        if (q.isEmpty()) {
+          break;
+        }
+
+      } catch (InterruptedException e) {
+        e.printStackTrace();
+      }
+    }
+    long end = System.currentTimeMillis();
+    System.out.println("total time: " + (end - start) / 1000);//127s
+    System.out.println("max cache queue size: " + maxQueueSize);//69943
   }
 
+
+  //==============================================================================
   //store the messages for each skierID
   private static void storeToMap(String message) {
     String[] tokens = message.split(DELIMITER);
@@ -137,6 +154,7 @@ public class Receiver {
 
   }
 
+  // per channel insert one message
   private static void insertToDB(String message) {
     String[] tokens = message.split(DELIMITER);
     int time = Integer.parseInt(tokens[0]);
